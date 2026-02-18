@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Python / FastAPI
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.venv/
+env/
+
+# Environment variables (IMPORTANT)
+.env
+.env.*
+backend/db/.env
+
+# Node / React
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
