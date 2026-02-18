@@ -68,45 +68,26 @@ Backend and frontend run separately.
 
 ## Backend Setup (FastAPI)
 
-Navigate into backend:
+If no .venv file in /backend directory, create virtual environment:
 
 ```bash
 cd backend
-```
-
-Create virtual environment:
-
-```bash
 python3 -m venv .venv
-```
-
-Activate environment:
-
-**Mac/Linux**
-
-```bash
 source .venv/bin/activate
-```
-
-**Windows**
-
-```bash
-.venv\\Scripts\\activate
-```
-
-Install dependencies:
-
-```bash
 pip install -r requirements.txt
-```
-
-Run server:
-
-```bash
 uvicorn main:app --reload --port 8001
 ```
 
-Test API:
+0therwise, activate current environment and run application from /backend directory:
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8001
+```
+
+### Test API
 
 Open browser:
 
