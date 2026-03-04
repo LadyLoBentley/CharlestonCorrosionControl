@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function Sensors() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
+  const navigate = useNavigate();
 
   const sensors = useMemo(
     () => [
@@ -54,65 +56,68 @@ export default function Sensors() {
         </div>
 
         <div className="topbarRight">
-          <input
-            className="select"
-            style={{ minWidth: 240 }}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by ID, name, or location…"
-            aria-label="Search sensors"
-          />
+            <button className="primaryBtn" onClick={() => navigate("/sensors/new")}>
+                + Add Sensor
+            </button>
+            <input
+                className="select"
+                style={{ minWidth: 240 }}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by ID, name, or location…"
+                aria-label="Search sensors"
+            />
 
-          <select
-            className="select"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            aria-label="Status filter"
-          >
-            <option>All</option>
-            <option>Online</option>
-            <option>Warning</option>
-            <option>Offline</option>
-          </select>
+            <select
+                className="select"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                aria-label="Status filter"
+            >
+                <option>All</option>
+                <option>Online</option>
+                <option>Warning</option>
+                <option>Offline</option>
+            </select>
         </div>
       </header>
 
-      <section className="card">
-        <div className="cardHeader">
-          <h2 className="cardTitle">Sensor List</h2>
-          <span className="muted">{filtered.length} shown</span>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map((s) => (
-            <div
-              key={s.id}
-              className={rowClass(s.risk, s.status)}
-              style={{ justifyContent: "space-between" }}
-            >
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <div style={{ fontWeight: 800 }}>
-                  {s.name} <span className="muted">• {s.id}</span>
-                </div>
-                <div className="muted">
-                  {s.location} • Last seen: {s.lastSeen}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className={pillClass(s.risk, s.status)}>{s.risk}</span>
-                <span className="muted">{s.status}</span>
-              </div>
+        <section className="card">
+            <div className="cardHeader">
+                <h2 className="cardTitle">Sensor List</h2>
+                <span className="muted">{filtered.length} shown</span>
             </div>
-          ))}
 
-          {filtered.length === 0 && (
-            <div className="muted" style={{ padding: 10 }}>
-              No sensors match your filters.
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {filtered.map((s) => (
+                <div
+                  key={s.id}
+                  className={rowClass(s.risk, s.status)}
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <div style={{ fontWeight: 800 }}>
+                      {s.name} <span className="muted">• {s.id}</span>
+                    </div>
+                    <div className="muted">
+                      {s.location} • Last seen: {s.lastSeen}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className={pillClass(s.risk, s.status)}>{s.risk}</span>
+                    <span className="muted">{s.status}</span>
+                  </div>
+                </div>
+              ))}
+
+                {filtered.length === 0 && (
+                <div className="muted" style={{ padding: 10 }}>
+                  No sensors match your filters.
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </section>
+        </section>
     </>
   );
 }
