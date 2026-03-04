@@ -1,109 +1,161 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+
+const API_BASE = "http://127.0.0.1:8001";
+
+function normStatus(s) {
+  return (s || "").toUpperCase(); // ONLINE/WARNING/OFFLINE
+}
+
+function minutesSince(dtStr) {
+  if (!dtStr) return null;
+  const dt = new Date(dtStr);
+  const diffMs = Date.now() - dt.getTime();
+  return Math.floor(diffMs / 60000);
+}
+
+function formatLastSeen(dtStr) {
+  if (!dtStr) return "Never";
+  const mins = minutesSince(dtStr);
+  if (mins === null) return "Never";
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export default function Dashboard() {
   const [assetFilter, setAssetFilter] = useState("All Sensors");
   const [riskFilter, setRiskFilter] = useState("All Risk Levels");
   const [role, setRole] = useState("Admin");
 
-  const inspections = useMemo(
-  () => [
-    {
-      id: "S-204",
-      title: "Container 1 Sensor-204",
-      time: "02/18/2026 08:49 AM",
-      confidence: 97,
-      type: "Multiparameter system",
-      thickness: "4.2 ± 0.3 mm",
-      note: "Normal: 6.0 – 8.0 mm",
-      riskLevel: "High",
-      status: "Online",
-    },
-    {
-      id: "S-116",
-      title: "Container 3 Sensor-116",
-      time: "02/18/2026 07:20 AM",
-      confidence: 91,
-      type: "Multiparameter system",
-      risk: "Medium",
-      next: "Next check: 6 hours",
-      riskLevel: "Medium",
-      status: "Online",
-    },
-    {
-      id: "S-101",
-      title: "Container 3 Sensor-101",
-      time: "02/18/2026 06:10 AM",
-      confidence: 88,
-      type: "Humidity + temp",
-      risk: "Low",
-      next: "Next check: 24 hours",
-      riskLevel: "Low",
-      status: "Online",
-    },
-    {
-      id: "S-331",
-      title: "Container 2 Sensor-331",
-      time: "Last seen 02/18/2026 8:42 AM",
-      confidence: 0,
-      type: "Multiparameter system",
-      risk: "Critical",
-      next: "Connection lost",
-      riskLevel: "Critical",
-      status: "Offline",
-    },
-  ],
-  []
-);
+  const [sensors, setSensors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
+  const STALE_MINUTES = 60; // tweak: "stale" after 60 mins without seeing sensor
 
-  const alerts = useMemo(
-  () => [
-    {
-      level: "Critical",
-      text: "Sheet Metal D2 • Degradation beyond threshold",
-    },
-    {
-      level: "Warning: High Risk",
-      text: "Sheet Metal C3 • Rapid thickness change detected",
-    },
-      {
-      level: "Warning: Medium Risk",
-      text: "Sheet Metal B4 • Moderate thickness change detected",
-    },
-  ],
-  []
-);
+  async function loadSensors() {
+    setLoading(true);
+    setError("");
 
+    try {
+      const res = await fetch(`${API_BASE}/api/sensor-submissions/`);
+      if (!res.ok) throw new Error(`GET sensors failed (${res.status})`);
+      const data = await res.json();
+      setSensors(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(e.message || "Failed to load sensors");
+    } finally {
+      setLoading(false);
+    }
+  }
 
+  useEffect(() => {
+    loadSensors();
+  }, []);
+
+  // Real KPIs from DB
   const kpis = useMemo(() => {
-  const total = inspections.length;
+    const total = sensors.length;
+    const active = sensors.filter((s) => s.is_active !== false).length;
 
-  const online = inspections.filter((s) => s.status === "Online").length;
+    const online = sensors.filter((s) => normStatus(s.status) === "ONLINE").length;
+    const warning = sensors.filter((s) => normStatus(s.status) === "WARNING").length;
+    const offline = sensors.filter((s) => normStatus(s.status) === "OFFLINE").length;
 
-  const critical = inspections.filter((s) => s.riskLevel === "Critical").length;
+    const stale = sensors.filter((s) => {
+      const mins = minutesSince(s.last_seen_at);
+      return s.is_active !== false && mins !== null && mins >= STALE_MINUTES;
+    }).length;
 
-  const atRisk = inspections.filter(
-    (s) => s.riskLevel === "High" || s.riskLevel === "Critical"
-  ).length;
+    return [
+      { label: "Total Sensors", value: total },
+      { label: "Active Sensors", value: active },
+      { label: "Online", value: online },
+      { label: "Warning", value: warning, accent: "warn" },
+      { label: "Offline", value: offline, accent: "critical" },
+      { label: "Stale", value: stale, accent: stale > 0 ? "warn" : "" },
+    ];
+  }, [sensors]);
 
-  return [
-    { label: "Active Sensors", value: total },
-    { label: "At Risk", value: atRisk, accent: "warn" },
-    { label: "Critical", value: critical, accent: "critical" },
-    { label: "Sensors Online", value: online },
-  ];
-}, [inspections]);
+  // Simple real alerts (no model yet)
+  const alerts = useMemo(() => {
+    const list = [];
 
+    sensors.forEach((s) => {
+      if (s.is_active === false) return;
 
+      const st = normStatus(s.status);
+      const last = s.last_seen_at;
+
+      if (st === "OFFLINE") {
+        list.push({
+          level: "Critical",
+          text: `${s.name} • ${s.location} • Offline (${formatLastSeen(last)})`,
+        });
+      } else if (st === "WARNING") {
+        list.push({
+          level: "Warning",
+          text: `${s.name} • ${s.location} • Warning (${formatLastSeen(last)})`,
+        });
+      } else {
+        const mins = minutesSince(last);
+        if (mins !== null && mins >= STALE_MINUTES) {
+          list.push({
+            level: "Warning",
+            text: `${s.name} • ${s.location} • Stale (${formatLastSeen(last)})`,
+          });
+        }
+      }
+    });
+
+    // Show top 5
+    return list.slice(0, 5);
+  }, [sensors]);
+
+  // Keep the “Recent Inspections” section but feed it “recent sensor activity” objects.
+  // This keeps your UI layout intact for later ML integration.
+  const recentActivity = useMemo(() => {
+    const sorted = [...sensors].sort((a, b) => {
+      const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+      const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+      return tb - ta;
+    });
+
+    return sorted.slice(0, 6).map((s) => {
+      const st = normStatus(s.status);
+
+      // placeholder fields for future model integration:
+      // confidence/thickness/etc will come from inspection/model table later
+      const tone =
+        st === "OFFLINE" ? "offline" :
+        st === "WARNING" ? "warn" :
+        "ok";
+
+      return {
+        id: s.sensor_code,
+        title: `${s.location} • ${s.name}`,
+        time: s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : "Never",
+        confidence: null, // placeholder
+        type: s.purpose?.trim() ? s.purpose : "Sensor telemetry",
+        thickness: null, // placeholder
+        risk: st === "WARNING" ? "Needs review" : "Normal",
+        next: st === "OFFLINE" ? "Connection lost" : `Last seen: ${formatLastSeen(s.last_seen_at)}`,
+        tone,
+      };
+    });
+  }, [sensors]);
 
   function handleRefresh() {
+    loadSensors();
     const btn = document.getElementById("refreshBtn");
     if (!btn) return;
     btn.classList.add("is-loading");
     setTimeout(() => btn.classList.remove("is-loading"), 650);
   }
 
-  // Keep your exact KPI “not squished” behavior
   const kpiGridStyle = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
@@ -112,7 +164,6 @@ export default function Dashboard() {
 
   return (
     <>
-      {/* TOP BAR */}
       <header className="topbar">
         <div>
           <div className="crumbs">Home • Corrosion Monitoring</div>
@@ -126,7 +177,7 @@ export default function Dashboard() {
             onChange={(e) => setAssetFilter(e.target.value)}
             aria-label="Asset Filter"
           >
-            <option>All Assets</option>
+            <option>All Sensors</option>
             <option>Sheet Metal</option>
           </select>
 
@@ -162,7 +213,12 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* KPIs */}
+      {error && (
+        <div className="card" style={{ padding: 12 }}>
+          <b>API error:</b> {error}
+        </div>
+      )}
+
       <section className="kpis" style={kpiGridStyle} aria-label="KPIs">
         {kpis.map((k) => (
           <div
@@ -177,13 +233,12 @@ export default function Dashboard() {
               {k.label}
             </div>
             <div className="kpiValue" style={{ whiteSpace: "nowrap" }}>
-              {k.value}
+              {loading ? "…" : k.value}
             </div>
           </div>
         ))}
       </section>
 
-      {/* Alerts */}
       <section className="card" aria-label="Active alerts">
         <div className="cardHeader">
           <h2 className="cardTitle">Active Alerts</h2>
@@ -193,6 +248,12 @@ export default function Dashboard() {
         </div>
 
         <div className="alerts">
+          {!loading && alerts.length === 0 && (
+            <div className="muted" style={{ padding: 10 }}>
+              No active alerts.
+            </div>
+          )}
+
           {alerts.map((a, idx) => (
             <div
               key={idx}
@@ -215,70 +276,58 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Recent Inspections */}
-      <section className="card" aria-label="Recent inspections">
+      <section className="card" aria-label="Recent activity">
         <div className="cardHeader">
-          <h2 className="cardTitle">Recent Inspections</h2>
+          <h2 className="cardTitle">Recent Activity</h2>
         </div>
 
         <div className="inspections">
-          {inspections.map((it) => (
-            <div key={it.id} className="inspection">
-              <div className="thumb" aria-hidden="true">
-                <div className="thumbIcon">
+          {!loading &&
+            recentActivity.map((it) => (
+              <div key={it.id} className="inspection">
+                <div className="thumb" aria-hidden="true">
+                  <div className="thumbIcon">
                     {it.tone === "critical" ? "⚠️" :
                      it.tone === "warn" ? "⚡" :
                      it.tone === "offline" ? "📡" :
                      "✔️"}
                   </div>
-                <div className="thumbBadge">?</div>
-              </div>
+                  <div className="thumbBadge">?</div>
+                </div>
 
-
-              <div className="inspectionMain">
-                <div className="inspectionMeta">
-                  <div className="metaCol">
-                    <div className="metaLabel">Result</div>
-                    <div
-                      className={
-                        "metaValue " +
-                        (it.tone === "critical" ? "tone-critical" : "tone-warn")
-                      }
-                    >
-                      {it.title}
+                <div className="inspectionMain">
+                  <div className="inspectionMeta">
+                    <div className="metaCol">
+                      <div className="metaLabel">Sensor</div>
+                      <div className="metaValue">{it.title}</div>
+                      <div className="metaSub">{it.time}</div>
                     </div>
-                    <div className="metaSub">{it.time}</div>
-                  </div>
 
-                  <div className="metaCol">
-                    <div className="metaLabel">Confidence</div>
-                    <div className="metaValue">{it.confidence}%</div>
-                  </div>
-
-                  <div className="metaCol">
-                    <div className="metaLabel">Inspection Type</div>
-                    <div className="metaValue">{it.type}</div>
-                  </div>
-
-                  <div className="metaCol">
-                    <div className="metaLabel">
-                      {it.thickness ? "Thickness" : "Estimated Risk"}
+                    <div className="metaCol">
+                      <div className="metaLabel">Model Confidence</div>
+                      <div className="metaValue">{it.confidence ?? "—"}</div>
                     </div>
-                    <div className="metaValue">
-                      {it.thickness ? it.thickness : it.risk}
+
+                    <div className="metaCol">
+                      <div className="metaLabel">Type</div>
+                      <div className="metaValue">{it.type}</div>
                     </div>
-                    <div className="metaSub">{it.note ? it.note : it.next}</div>
+
+                    <div className="metaCol">
+                      <div className="metaLabel">Status</div>
+                      <div className="metaValue">{it.risk}</div>
+                      <div className="metaSub">{it.next}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="inspectionActions">
-                <button className="btnOutline" type="button">
-                  Delete
-                </button>
+                <div className="inspectionActions">
+                  <button className="btnOutline" type="button" disabled>
+                    Delete
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       </section>
 
