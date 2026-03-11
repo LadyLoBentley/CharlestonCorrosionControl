@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Card, CardHeader } from "../components/Card/Card";
 
 const API_BASE = "http://127.0.0.1:8001";
 
 function normStatus(s) {
-  return (s || "").toUpperCase(); // ONLINE/WARNING/OFFLINE
+  return (s || "").toUpperCase();
 }
 
 function minutesSince(dtStr) {
@@ -34,7 +35,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const STALE_MINUTES = 60; // tweak: "stale" after 60 mins without seeing sensor
+  const STALE_MINUTES = 60;
 
   async function loadSensors() {
     setLoading(true);
@@ -56,7 +57,6 @@ export default function Dashboard() {
     loadSensors();
   }, []);
 
-  // Real KPIs from DB
   const kpis = useMemo(() => {
     const total = sensors.length;
     const active = sensors.filter((s) => s.is_active !== false).length;
@@ -80,7 +80,6 @@ export default function Dashboard() {
     ];
   }, [sensors]);
 
-  // Simple real alerts (no model yet)
   const alerts = useMemo(() => {
     const list = [];
 
@@ -111,12 +110,9 @@ export default function Dashboard() {
       }
     });
 
-    // Show top 5
     return list.slice(0, 5);
   }, [sensors]);
 
-  // Keep the “Recent Inspections” section but feed it “recent sensor activity” objects.
-  // This keeps your UI layout intact for later ML integration.
   const recentActivity = useMemo(() => {
     const sorted = [...sensors].sort((a, b) => {
       const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
@@ -127,22 +123,27 @@ export default function Dashboard() {
     return sorted.slice(0, 6).map((s) => {
       const st = normStatus(s.status);
 
-      // placeholder fields for future model integration:
-      // confidence/thickness/etc will come from inspection/model table later
       const tone =
-        st === "OFFLINE" ? "offline" :
-        st === "WARNING" ? "warn" :
-        "ok";
+        st === "OFFLINE"
+          ? "offline"
+          : st === "WARNING"
+          ? "warn"
+          : "ok";
 
       return {
         id: s.sensor_code,
         title: `${s.location} • ${s.name}`,
-        time: s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : "Never",
-        confidence: null, // placeholder
+        time: s.last_seen_at
+          ? new Date(s.last_seen_at).toLocaleString()
+          : "Never",
+        confidence: null,
         type: s.purpose?.trim() ? s.purpose : "Sensor telemetry",
-        thickness: null, // placeholder
-        risk: st === "WARNING" ? "Needs review" : "Normal",
-        next: st === "OFFLINE" ? "Connection lost" : `Last seen: ${formatLastSeen(s.last_seen_at)}`,
+        thickness: null,
+        risk: st === "WARNING" ? "Needs review" : st === "OFFLINE" ? "Offline" : "Normal",
+        next:
+          st === "OFFLINE"
+            ? "Connection lost"
+            : `Last seen: ${formatLastSeen(s.last_seen_at)}`,
         tone,
       };
     });
@@ -155,12 +156,6 @@ export default function Dashboard() {
     btn.classList.add("is-loading");
     setTimeout(() => btn.classList.remove("is-loading"), 650);
   }
-
-  const kpiGridStyle = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 12,
-  };
 
   return (
     <>
@@ -214,17 +209,19 @@ export default function Dashboard() {
       </header>
 
       {error && (
-        <div className="card" style={{ padding: 12 }}>
-          <b>API error:</b> {error}
-        </div>
+        <Card>
+          <div style={{ padding: 12 }}>
+            <b>API error:</b> {error}
+          </div>
+        </Card>
       )}
 
-      <section className="kpis" style={kpiGridStyle} aria-label="KPIs">
+      <section className="kpis" aria-label="KPIs">
         {kpis.map((k) => (
-          <div
+          <Card
             key={k.label}
             className={
-              "card kpi" +
+              "kpi" +
               (k.accent === "warn" ? " kpi-warn" : "") +
               (k.accent === "critical" ? " kpi-critical" : "")
             }
@@ -235,17 +232,19 @@ export default function Dashboard() {
             <div className="kpiValue" style={{ whiteSpace: "nowrap" }}>
               {loading ? "…" : k.value}
             </div>
-          </div>
+          </Card>
         ))}
       </section>
 
-      <section className="card" aria-label="Active alerts">
-        <div className="cardHeader">
-          <h2 className="cardTitle">Active Alerts</h2>
-          <a className="link" href="#">
-            View all
-          </a>
-        </div>
+      <Card aria-label="Active alerts">
+        <CardHeader
+          title="Active Alerts"
+          right={
+            <a className="link" href="#">
+              View all
+            </a>
+          }
+        />
 
         <div className="alerts">
           {!loading && alerts.length === 0 && (
@@ -274,12 +273,10 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
-      <section className="card" aria-label="Recent activity">
-        <div className="cardHeader">
-          <h2 className="cardTitle">Recent Activity</h2>
-        </div>
+      <Card aria-label="Recent activity">
+        <CardHeader title="Recent Activity" />
 
         <div className="inspections">
           {!loading &&
@@ -287,10 +284,13 @@ export default function Dashboard() {
               <div key={it.id} className="inspection">
                 <div className="thumb" aria-hidden="true">
                   <div className="thumbIcon">
-                    {it.tone === "critical" ? "⚠️" :
-                     it.tone === "warn" ? "⚡" :
-                     it.tone === "offline" ? "📡" :
-                     "✔️"}
+                    {it.tone === "critical"
+                      ? "⚠️"
+                      : it.tone === "warn"
+                      ? "⚡"
+                      : it.tone === "offline"
+                      ? "📡"
+                      : "✔️"}
                   </div>
                   <div className="thumbBadge">?</div>
                 </div>
@@ -329,7 +329,7 @@ export default function Dashboard() {
               </div>
             ))}
         </div>
-      </section>
+      </Card>
 
       <footer className="footer">
         <span className="muted">
