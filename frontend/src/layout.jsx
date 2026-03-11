@@ -22,10 +22,6 @@ export default function Layout() {
             Home
           </NavLink>
 
-            <NavLink className={navClass} to="/locations">
-                Locations
-            </NavLink>
-
           <NavLink className={navClass} to="/sensors">
             Assets
           </NavLink>
