@@ -83,7 +83,6 @@ uvicorn main:app --reload --port 8001
 ```bash
 cd backend
 source .venv/bin/activate
-pip install -r requirements.txt
 uvicorn main:app --reload --port 8001
 ```
 

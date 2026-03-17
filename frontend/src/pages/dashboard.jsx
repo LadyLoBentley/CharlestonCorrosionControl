@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Card, CardHeader } from "../components/Card/Card";
 
 const API_BASE = "http://127.0.0.1:8001";
 
 function normStatus(s) {
-  return (s || "").toUpperCase(); // ONLINE/WARNING/OFFLINE
+  return (s || "").toUpperCase();
 }
 
 function getRiskLevelFromPrediction(sensor, predictionData) {
@@ -105,7 +106,6 @@ export default function Dashboard() {
     loadSensors();
   }, []);
 
-  // Real KPIs from DB
   const kpis = useMemo(() => {
     const total = sensors.length;
     const active = sensors.filter((s) => s.is_active !== false).length;
@@ -254,12 +254,6 @@ export default function Dashboard() {
     setTimeout(() => btn.classList.remove("is-loading"), 650);
   }
 
-  const kpiGridStyle = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 12,
-  };
-
   return (
     <>
       <header className="topbar">
@@ -312,17 +306,19 @@ export default function Dashboard() {
       </header>
 
       {error && (
-        <div className="card" style={{ padding: 12 }}>
-          <b>API error:</b> {error}
-        </div>
+        <Card>
+          <div style={{ padding: 12 }}>
+            <b>API error:</b> {error}
+          </div>
+        </Card>
       )}
 
-      <section className="kpis" style={kpiGridStyle} aria-label="KPIs">
+      <section className="kpis" aria-label="KPIs">
         {kpis.map((k) => (
-          <div
+          <Card
             key={k.label}
             className={
-              "card kpi" +
+              "kpi" +
               (k.accent === "warn" ? " kpi-warn" : "") +
               (k.accent === "critical" ? " kpi-critical" : "")
             }
@@ -333,17 +329,19 @@ export default function Dashboard() {
             <div className="kpiValue" style={{ whiteSpace: "nowrap" }}>
               {loading ? "…" : k.value}
             </div>
-          </div>
+          </Card>
         ))}
       </section>
 
-      <section className="card" aria-label="Active alerts">
-        <div className="cardHeader">
-          <h2 className="cardTitle">Active Alerts</h2>
-          <a className="link" href="#">
-            View all
-          </a>
-        </div>
+      <Card aria-label="Active alerts">
+        <CardHeader
+          title="Active Alerts"
+          right={
+            <a className="link" href="#">
+              View all
+            </a>
+          }
+        />
 
         <div className="alerts">
           {!loading && alerts.length === 0 && (
@@ -372,12 +370,10 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
-      <section className="card" aria-label="Recent activity">
-        <div className="cardHeader">
-          <h2 className="cardTitle">Recent Activity</h2>
-        </div>
+      <Card aria-label="Recent activity">
+        <CardHeader title="Recent Activity" />
 
         <div className="inspections">
           {!loading &&
@@ -385,10 +381,13 @@ export default function Dashboard() {
               <div key={it.id} className="inspection">
                 <div className="thumb" aria-hidden="true">
                   <div className="thumbIcon">
-                    {it.tone === "critical" ? "⚠️" :
-                     it.tone === "warn" ? "⚡" :
-                     it.tone === "offline" ? "📡" :
-                     "✔️"}
+                    {it.tone === "critical"
+                      ? "⚠️"
+                      : it.tone === "warn"
+                      ? "⚡"
+                      : it.tone === "offline"
+                      ? "📡"
+                      : "✔️"}
                   </div>
                   <div className="thumbBadge">?</div>
                 </div>
@@ -427,7 +426,7 @@ export default function Dashboard() {
               </div>
             ))}
         </div>
-      </section>
+      </Card>
 
       <footer className="footer">
         <span className="muted">
