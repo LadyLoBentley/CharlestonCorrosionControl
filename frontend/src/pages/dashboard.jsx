@@ -234,10 +234,10 @@ export default function Dashboard() {
   }
 
   const kpiGridStyle = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 12,
-  };
+      display: "grid",
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+      gap: 16,
+    };
 
   return (
     <>
@@ -296,7 +296,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <section className="kpis" style={kpiGridStyle} aria-label="KPIs">
+      <section className="kpis" aria-label="KPIs">
         {kpis.map((k) => (
           <div
             key={k.label}
