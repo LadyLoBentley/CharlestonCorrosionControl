@@ -6,6 +6,26 @@ function normStatus(s) {
   return (s || "").toUpperCase(); // ONLINE/WARNING/OFFLINE
 }
 
+function getRiskLevelFromPrediction(sensor, predictionData) {
+  const status = normStatus(sensor.status);
+
+  // connection failure should still win
+  if (status === "OFFLINE") return "Critical";
+
+  const prob = predictionData?.probability;
+
+  if (prob == null) {
+    if (status === "WARNING") return "High";
+    return "Low";
+  }
+
+  if (prob >= 0.85) return "Critical";
+  if (prob >= 0.6) return "High";
+  if (prob >= 0.3) return "Medium";
+
+  return "Low";
+}
+
 function minutesSince(dtStr) {
   if (!dtStr) return null;
   const dt = new Date(dtStr);
@@ -34,6 +54,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [predictionsBySensor, setPredictionsBySensor] = useState({});
+
   const STALE_MINUTES = 60; // tweak: "stale" after 60 mins without seeing sensor
 
   async function loadSensors() {
@@ -51,6 +73,33 @@ export default function Dashboard() {
       setLoading(false);
     }
   }
+
+  async function loadPredictions(sensorList) {
+  try {
+    const results = await Promise.all(
+      sensorList.map(async (sensor) => {
+        try {
+          const res = await fetch(
+            `${API_BASE}/corrosion/predict/${encodeURIComponent(sensor.sensor_code)}`
+          );
+
+          if (!res.ok) {
+            return [sensor.sensor_code, null];
+          }
+
+          const data = await res.json();
+          return [sensor.sensor_code, data];
+        } catch {
+          return [sensor.sensor_code, null];
+        }
+      })
+    );
+
+    setPredictionsBySensor(Object.fromEntries(results));
+  } catch (e) {
+    console.error("Failed to load predictions", e);
+  }
+}
 
   useEffect(() => {
     loadSensors();
@@ -80,73 +129,122 @@ export default function Dashboard() {
     ];
   }, [sensors]);
 
-  // Simple real alerts (no model yet)
-  const alerts = useMemo(() => {
-    const list = [];
+  const alerts = useMemo(()=>{
 
-    sensors.forEach((s) => {
-      if (s.is_active === false) return;
+      let list = [];
 
-      const st = normStatus(s.status);
-      const last = s.last_seen_at;
+      sensors.forEach((s)=>{
 
-      if (st === "OFFLINE") {
+        if(s.is_active===false) return;
+
+        const risk = getRiskLevel(s);
+
+        if(risk==="Low") return;
+
+        if(
+          riskFilter!=="All Risk Levels"
+          && risk!==riskFilter
+        ) return;
+
         list.push({
-          level: "Critical",
-          text: `${s.name} • ${s.location} • Offline (${formatLastSeen(last)})`,
-        });
-      } else if (st === "WARNING") {
-        list.push({
-          level: "Warning",
-          text: `${s.name} • ${s.location} • Warning (${formatLastSeen(last)})`,
-        });
-      } else {
-        const mins = minutesSince(last);
-        if (mins !== null && mins >= STALE_MINUTES) {
-          list.push({
-            level: "Warning",
-            text: `${s.name} • ${s.location} • Stale (${formatLastSeen(last)})`,
-          });
-        }
-      }
-    });
 
-    // Show top 5
-    return list.slice(0, 5);
-  }, [sensors]);
+          level:risk==="Critical"
+            ?"Critical"
+            :"Warning",
+
+          text:
+            `${s.name} • ${s.location} • ${risk}
+            (${formatLastSeen(s.last_seen_at)})`
+
+        });
+
+      });
+
+      return list.slice(0,5);
+
+    },[sensors,riskFilter]);
 
   // Keep the “Recent Inspections” section but feed it “recent sensor activity” objects.
   // This keeps your UI layout intact for later ML integration.
+  function getRiskLevel(sensor) {
+      const st = normStatus(sensor.status);
+      const mins = minutesSince(sensor.last_seen_at);
+
+      if (st === "OFFLINE") return "Critical";
+
+      if (st === "WARNING") return "High";
+
+      if (mins !== null && mins >= 60) return "Medium";
+
+      return "Low";
+  }
+
   const recentActivity = useMemo(() => {
-    const sorted = [...sensors].sort((a, b) => {
-      const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
-      const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
-      return tb - ta;
-    });
 
-    return sorted.slice(0, 6).map((s) => {
-      const st = normStatus(s.status);
+  let filtered = [...sensors];
 
-      // placeholder fields for future model integration:
-      // confidence/thickness/etc will come from inspection/model table later
-      const tone =
-        st === "OFFLINE" ? "offline" :
-        st === "WARNING" ? "warn" :
-        "ok";
+  // Asset filter
+  if (assetFilter !== "All Sensors") {
+    filtered = filtered.filter(s =>
+      s.purpose === assetFilter
+    );
+  }
 
-      return {
-        id: s.sensor_code,
-        title: `${s.location} • ${s.name}`,
-        time: s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : "Never",
-        confidence: null, // placeholder
-        type: s.purpose?.trim() ? s.purpose : "Sensor telemetry",
-        thickness: null, // placeholder
-        risk: st === "WARNING" ? "Needs review" : "Normal",
-        next: st === "OFFLINE" ? "Connection lost" : `Last seen: ${formatLastSeen(s.last_seen_at)}`,
-        tone,
-      };
-    });
-  }, [sensors]);
+  // Risk filter
+  if (riskFilter !== "All Risk Levels") {
+    filtered = filtered.filter(s =>
+      getRiskLevel(s) === riskFilter
+    );
+  }
+
+  const sorted = filtered.sort((a,b)=>{
+    const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+    const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+
+    return tb-ta;
+  });
+
+  return sorted.slice(0,6).map((s)=>{
+
+    const riskLevel = getRiskLevel(s);
+
+    const tone =
+      riskLevel === "Critical" ? "critical" :
+      riskLevel === "High" ? "warn" :
+      riskLevel === "Medium" ? "warn" :
+      "ok";
+
+    return {
+
+      id:s.sensor_code,
+
+      title:`${s.location} • ${s.name}`,
+
+      time:s.last_seen_at
+        ? new Date(s.last_seen_at).toLocaleString()
+        :"Never",
+
+      confidence:null,
+
+      type:s.purpose?.trim()
+        ? s.purpose
+        :"Sensor telemetry",
+
+      thickness:null,
+
+      risk:riskLevel,
+
+      next:
+        riskLevel==="Critical"
+          ? "Connection lost"
+          :`Last seen: ${formatLastSeen(s.last_seen_at)}`,
+
+      tone
+    };
+
+  });
+
+},[sensors,riskFilter,assetFilter]);
 
   function handleRefresh() {
     loadSensors();
