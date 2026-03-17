@@ -1,30 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, CardHeader } from "../components/Card/Card";
 
 const API_BASE = "http://127.0.0.1:8001";
+const STALE_MINUTES = 60;
 
 function normStatus(s) {
   return (s || "").toUpperCase();
-}
-
-function getRiskLevelFromPrediction(sensor, predictionData) {
-  const status = normStatus(sensor.status);
-
-  // connection failure should still win
-  if (status === "OFFLINE") return "Critical";
-
-  const prob = predictionData?.probability;
-
-  if (prob == null) {
-    if (status === "WARNING") return "High";
-    return "Low";
-  }
-
-  if (prob >= 0.85) return "Critical";
-  if (prob >= 0.6) return "High";
-  if (prob >= 0.3) return "Medium";
-
-  return "Low";
 }
 
 function minutesSince(dtStr) {
@@ -46,18 +26,67 @@ function formatLastSeen(dtStr) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+function getRiskLevelFromPrediction(sensor, predictionData) {
+  const status = normStatus(sensor.status);
+
+  // operational failure wins
+  if (status === "OFFLINE") return "Critical";
+
+  const prob = predictionData?.probability;
+
+  // fallback if prediction unavailable
+  if (prob == null) {
+    if (status === "WARNING") return "High";
+
+    const mins = minutesSince(sensor.last_seen_at);
+    if (mins !== null && mins >= STALE_MINUTES) return "Medium";
+
+    return "Low";
+  }
+
+  if (prob >= 0.85) return "Critical";
+  if (prob >= 0.6) return "High";
+  if (prob >= 0.3) return "Medium";
+  return "Low";
+}
+
 export default function Dashboard() {
   const [assetFilter, setAssetFilter] = useState("All Sensors");
   const [riskFilter, setRiskFilter] = useState("All Risk Levels");
   const [role, setRole] = useState("Admin");
 
   const [sensors, setSensors] = useState([]);
+  const [predictionsBySensor, setPredictionsBySensor] = useState({});
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [predictionsBySensor, setPredictionsBySensor] = useState({});
+  async function loadPredictions(sensorList) {
+    try {
+      const results = await Promise.all(
+        sensorList.map(async (sensor) => {
+          try {
+            const res = await fetch(
+              `${API_BASE}/corrosion/predict/${encodeURIComponent(sensor.sensor_code)}`
+            );
 
-  const STALE_MINUTES = 60; // tweak: "stale" after 60 mins without seeing sensor
+            if (!res.ok) {
+              return [sensor.sensor_code, null];
+            }
+
+            const data = await res.json();
+            return [sensor.sensor_code, data];
+          } catch {
+            return [sensor.sensor_code, null];
+          }
+        })
+      );
+
+      setPredictionsBySensor(Object.fromEntries(results));
+    } catch (e) {
+      console.error("Failed to load predictions", e);
+    }
+  }
 
   async function loadSensors() {
     setLoading(true);
@@ -66,8 +95,12 @@ export default function Dashboard() {
     try {
       const res = await fetch(`${API_BASE}/api/sensor-submissions/`);
       if (!res.ok) throw new Error(`GET sensors failed (${res.status})`);
+
       const data = await res.json();
-      setSensors(Array.isArray(data) ? data : []);
+      const sensorList = Array.isArray(data) ? data : [];
+
+      setSensors(sensorList);
+      await loadPredictions(sensorList);
     } catch (e) {
       setError(e.message || "Failed to load sensors");
     } finally {
@@ -75,46 +108,40 @@ export default function Dashboard() {
     }
   }
 
-  async function loadPredictions(sensorList) {
-  try {
-    const results = await Promise.all(
-      sensorList.map(async (sensor) => {
-        try {
-          const res = await fetch(
-            `${API_BASE}/corrosion/predict/${encodeURIComponent(sensor.sensor_code)}`
-          );
-
-          if (!res.ok) {
-            return [sensor.sensor_code, null];
-          }
-
-          const data = await res.json();
-          return [sensor.sensor_code, data];
-        } catch {
-          return [sensor.sensor_code, null];
-        }
-      })
-    );
-
-    setPredictionsBySensor(Object.fromEntries(results));
-  } catch (e) {
-    console.error("Failed to load predictions", e);
-  }
-}
-
   useEffect(() => {
     loadSensors();
   }, []);
 
+  const sensorsWithPredictions = useMemo(() => {
+    return sensors.map((sensor) => {
+      const predictionData = predictionsBySensor[sensor.sensor_code] || null;
+      const riskLevel = getRiskLevelFromPrediction(sensor, predictionData);
+
+      return {
+        ...sensor,
+        predictionData,
+        risk_level: riskLevel,
+      };
+    });
+  }, [sensors, predictionsBySensor]);
+
   const kpis = useMemo(() => {
-    const total = sensors.length;
-    const active = sensors.filter((s) => s.is_active !== false).length;
+    const total = sensorsWithPredictions.length;
+    const active = sensorsWithPredictions.filter((s) => s.is_active !== false).length;
 
-    const online = sensors.filter((s) => normStatus(s.status) === "ONLINE").length;
-    const warning = sensors.filter((s) => normStatus(s.status) === "WARNING").length;
-    const offline = sensors.filter((s) => normStatus(s.status) === "OFFLINE").length;
+    const online = sensorsWithPredictions.filter(
+      (s) => normStatus(s.status) === "ONLINE"
+    ).length;
 
-    const stale = sensors.filter((s) => {
+    const warning = sensorsWithPredictions.filter(
+      (s) => normStatus(s.status) === "WARNING"
+    ).length;
+
+    const offline = sensorsWithPredictions.filter(
+      (s) => normStatus(s.status) === "OFFLINE"
+    ).length;
+
+    const stale = sensorsWithPredictions.filter((s) => {
       const mins = minutesSince(s.last_seen_at);
       return s.is_active !== false && mins !== null && mins >= STALE_MINUTES;
     }).length;
@@ -127,132 +154,90 @@ export default function Dashboard() {
       { label: "Offline", value: offline, accent: "critical" },
       { label: "Stale", value: stale, accent: stale > 0 ? "warn" : "" },
     ];
-  }, [sensors]);
+  }, [sensorsWithPredictions]);
 
-  const alerts = useMemo(()=>{
+  const alerts = useMemo(() => {
+    const list = [];
 
-      let list = [];
+    sensorsWithPredictions.forEach((s) => {
+      if (s.is_active === false) return;
 
-      sensors.forEach((s)=>{
+      const risk = s.risk_level;
 
-        if(s.is_active===false) return;
+      if (risk === "Low") return;
+      if (riskFilter !== "All Risk Levels" && risk !== riskFilter) return;
 
-        const risk = getRiskLevel(s);
-
-        if(risk==="Low") return;
-
-        if(
-          riskFilter!=="All Risk Levels"
-          && risk!==riskFilter
-        ) return;
-
-        list.push({
-
-          level:risk==="Critical"
-            ?"Critical"
-            :"Warning",
-
-          text:
-            `${s.name} • ${s.location} • ${risk}
-            (${formatLastSeen(s.last_seen_at)})`
-
-        });
-
+      list.push({
+        level: risk === "Critical" ? "Critical" : "Warning",
+        text: `${s.name} • ${s.location} • ${risk} (${formatLastSeen(s.last_seen_at)})`,
       });
+    });
 
-      return list.slice(0,5);
-
-    },[sensors,riskFilter]);
-
-  // Keep the “Recent Inspections” section but feed it “recent sensor activity” objects.
-  // This keeps your UI layout intact for later ML integration.
-  function getRiskLevel(sensor) {
-      const st = normStatus(sensor.status);
-      const mins = minutesSince(sensor.last_seen_at);
-
-      if (st === "OFFLINE") return "Critical";
-
-      if (st === "WARNING") return "High";
-
-      if (mins !== null && mins >= 60) return "Medium";
-
-      return "Low";
-  }
+    return list.slice(0, 5);
+  }, [sensorsWithPredictions, riskFilter]);
 
   const recentActivity = useMemo(() => {
+    let filtered = [...sensorsWithPredictions];
 
-  let filtered = [...sensors];
+    if (assetFilter !== "All Sensors") {
+      filtered = filtered.filter((s) => s.purpose === assetFilter);
+    }
 
-  // Asset filter
-  if (assetFilter !== "All Sensors") {
-    filtered = filtered.filter(s =>
-      s.purpose === assetFilter
-    );
-  }
+    if (riskFilter !== "All Risk Levels") {
+      filtered = filtered.filter((s) => s.risk_level === riskFilter);
+    }
 
-  // Risk filter
-  if (riskFilter !== "All Risk Levels") {
-    filtered = filtered.filter(s =>
-      getRiskLevel(s) === riskFilter
-    );
-  }
+    const sorted = filtered.sort((a, b) => {
+      const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+      const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+      return tb - ta;
+    });
 
-  const sorted = filtered.sort((a,b)=>{
-    const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
-    const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+    return sorted.slice(0, 6).map((s) => {
+      const risk = s.risk_level;
+      const prob = s.predictionData?.probability ?? null;
 
-    return tb-ta;
-  });
+      const tone =
+        risk === "Critical"
+          ? "critical"
+          : risk === "High" || risk === "Medium"
+            ? "warn"
+            : normStatus(s.status) === "OFFLINE"
+              ? "offline"
+              : "ok";
 
-  return sorted.slice(0,6).map((s)=>{
-
-    const riskLevel = getRiskLevel(s);
-
-    const tone =
-      riskLevel === "Critical" ? "critical" :
-      riskLevel === "High" ? "warn" :
-      riskLevel === "Medium" ? "warn" :
-      "ok";
-
-    return {
-
-      id:s.sensor_code,
-
-      title:`${s.location} • ${s.name}`,
-
-      time:s.last_seen_at
-        ? new Date(s.last_seen_at).toLocaleString()
-        :"Never",
-
-      confidence:null,
-
-      type:s.purpose?.trim()
-        ? s.purpose
-        :"Sensor telemetry",
-
-      thickness:null,
-
-      risk:riskLevel,
-
-      next:
-        riskLevel==="Critical"
-          ? "Connection lost"
-          :`Last seen: ${formatLastSeen(s.last_seen_at)}`,
-
-      tone
-    };
-
-  });
-
-},[sensors,riskFilter,assetFilter]);
+      return {
+        id: s.sensor_code,
+        title: `${s.location} • ${s.name}`,
+        time: s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : "Never",
+        confidence: prob != null ? `${(prob * 100).toFixed(1)}%` : "—",
+        type: s.purpose?.trim() ? s.purpose : "Sensor telemetry",
+        thickness: null,
+        risk,
+        next:
+          normStatus(s.status) === "OFFLINE"
+            ? "Connection lost"
+            : `Last seen: ${formatLastSeen(s.last_seen_at)}`,
+        tone,
+      };
+    });
+  }, [sensorsWithPredictions, assetFilter, riskFilter]);
 
   function handleRefresh() {
     loadSensors();
+
     const btn = document.getElementById("refreshBtn");
     if (!btn) return;
+
     btn.classList.add("is-loading");
     setTimeout(() => btn.classList.remove("is-loading"), 650);
   }
+
+  const kpiGridStyle = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: 12,
+  };
 
   return (
     <>
@@ -306,19 +291,17 @@ export default function Dashboard() {
       </header>
 
       {error && (
-        <Card>
-          <div style={{ padding: 12 }}>
-            <b>API error:</b> {error}
-          </div>
-        </Card>
+        <div className="card" style={{ padding: 12 }}>
+          <b>API error:</b> {error}
+        </div>
       )}
 
-      <section className="kpis" aria-label="KPIs">
+      <section className="kpis" style={kpiGridStyle} aria-label="KPIs">
         {kpis.map((k) => (
-          <Card
+          <div
             key={k.label}
             className={
-              "kpi" +
+              "card kpi" +
               (k.accent === "warn" ? " kpi-warn" : "") +
               (k.accent === "critical" ? " kpi-critical" : "")
             }
@@ -329,19 +312,17 @@ export default function Dashboard() {
             <div className="kpiValue" style={{ whiteSpace: "nowrap" }}>
               {loading ? "…" : k.value}
             </div>
-          </Card>
+          </div>
         ))}
       </section>
 
-      <Card aria-label="Active alerts">
-        <CardHeader
-          title="Active Alerts"
-          right={
-            <a className="link" href="#">
-              View all
-            </a>
-          }
-        />
+      <section className="card" aria-label="Active alerts">
+        <div className="cardHeader">
+          <h2 className="cardTitle">Active Alerts</h2>
+          <a className="link" href="#">
+            View all
+          </a>
+        </div>
 
         <div className="alerts">
           {!loading && alerts.length === 0 && (
@@ -370,10 +351,12 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      </Card>
+      </section>
 
-      <Card aria-label="Recent activity">
-        <CardHeader title="Recent Activity" />
+      <section className="card" aria-label="Recent activity">
+        <div className="cardHeader">
+          <h2 className="cardTitle">Recent Activity</h2>
+        </div>
 
         <div className="inspections">
           {!loading &&
@@ -384,10 +367,10 @@ export default function Dashboard() {
                     {it.tone === "critical"
                       ? "⚠️"
                       : it.tone === "warn"
-                      ? "⚡"
-                      : it.tone === "offline"
-                      ? "📡"
-                      : "✔️"}
+                        ? "⚡"
+                        : it.tone === "offline"
+                          ? "📡"
+                          : "✔️"}
                   </div>
                   <div className="thumbBadge">?</div>
                 </div>
@@ -402,7 +385,7 @@ export default function Dashboard() {
 
                     <div className="metaCol">
                       <div className="metaLabel">Model Confidence</div>
-                      <div className="metaValue">{it.confidence ?? "—"}</div>
+                      <div className="metaValue">{it.confidence}</div>
                     </div>
 
                     <div className="metaCol">
@@ -426,7 +409,7 @@ export default function Dashboard() {
               </div>
             ))}
         </div>
-      </Card>
+      </section>
 
       <footer className="footer">
         <span className="muted">
