@@ -2,10 +2,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from db.database import create_db_and_tables
-from routers.sensors_router import router as sensor_router
 from fastapi.middleware.cors import CORSMiddleware
 from routers.sensor_reading_router import router as sensor_readings_router
 from routers.sensors_router import router as sensor_router
+from routers.corrosion_router import router as corrosion_router
 
 
 @asynccontextmanager
@@ -30,3 +30,5 @@ def health():
 
 app.include_router(sensor_router, prefix="/api")
 app.include_router(sensor_readings_router)
+
+app.include_router(corrosion_router)
