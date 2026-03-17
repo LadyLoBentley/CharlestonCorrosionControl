@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Card, CardHeader } from "../components/Card/Card";
 
-const API_BASE = "http://127.0.0.1:8001"; // <- change if you're on 8000
+const API_BASE = "http://127.0.0.1:8001";
 
 function titleCaseStatus(s) {
   if (!s) return "";
@@ -42,18 +43,16 @@ export default function Sensors() {
       setError("");
 
       try {
-        const res = await fetch("http://localhost:8001/api/sensor-submissions/");
+        const res = await fetch(`${API_BASE}/api/sensor-submissions/`);
         if (!res.ok) throw new Error(`GET /api/sensors failed (${res.status})`);
 
         const data = await res.json();
 
-        // Map DB model -> your UI model
         const mapped = (data || []).map((s) => ({
           id: s.sensor_code,
           name: s.name,
           location: s.location,
           status: titleCaseStatus(s.status),
-          // you don't have risk in DB yet, so default it or derive it later
           risk: "Low",
           lastSeen: formatLastSeen(s.last_seen_at),
         }));
@@ -67,6 +66,7 @@ export default function Sensors() {
     }
 
     loadSensors();
+
     return () => {
       cancelled = true;
     };
@@ -74,6 +74,7 @@ export default function Sensors() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+
     return sensors.filter((s) => {
       const matchesQuery =
         !q ||
@@ -112,7 +113,7 @@ export default function Sensors() {
         </div>
 
         <div className="topbarRight">
-          <button className="primaryBtn" onClick={() => navigate("/sensors/new")}>
+          <button className="btn" onClick={() => navigate("/sensors/new")}>
             + Add Sensor
           </button>
 
@@ -139,13 +140,11 @@ export default function Sensors() {
         </div>
       </header>
 
-      <section className="card">
-        <div className="cardHeader">
-          <h2 className="cardTitle">Sensor List</h2>
-          <span className="muted">
-            {loading ? "Loading…" : `${filtered.length} shown`}
-          </span>
-        </div>
+      <Card>
+        <CardHeader
+          title="Sensor List"
+          right={<span className="muted">{loading ? "Loading…" : `${filtered.length} shown`}</span>}
+        />
 
         {error && (
           <div className="muted" style={{ padding: 10 }}>
@@ -165,6 +164,7 @@ export default function Sensors() {
                   <div style={{ fontWeight: 800 }}>
                     {s.name} <span className="muted">• {s.id}</span>
                   </div>
+
                   <div className="muted">
                     {s.location} • Last seen: {s.lastSeen}
                   </div>
@@ -183,7 +183,7 @@ export default function Sensors() {
             </div>
           )}
         </div>
-      </section>
+      </Card>
     </>
   );
 }
