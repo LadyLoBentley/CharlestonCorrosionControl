@@ -104,11 +104,18 @@ Expected response:
 
 ## Frontend Setup (React + Vite)
 
-Open new terminal:
+1. Open new terminal
 
+2. If react is not installed:
 ```bash
 cd frontend
 npm install
+npm run dev
+```
+
+Otherwise:
+```bash
+cd frontend
 npm run dev
 ```
 
