@@ -1,206 +1,167 @@
 # Charleston Corrosion Control
 
-A corrosion monitoring dashboard demo for tracking industrial sensors, inspection results, and risk alerts.
+A corrosion monitoring dashboard for industrial sensors. Tracks sensors in the field, groups them by location, runs an ML model on recent readings to flag at-risk equipment, and shows live trend charts so operators can spot trouble before it costs money.
 
-This project simulates a monitoring interface used in manufacturing environments to quickly identify degradation risk, offline sensors, and abnormal readings.
+> **Just picked this project up?** After reading this README, see [`HANDOFF.md`](./HANDOFF.md) for a deep tour of the codebase, known quirks, and a prioritized roadmap.
 
 ---
 
 ## Tech Stack
 
-### Frontend
-- React
-- Vite
-- React Router
-- CSS (custom styling)
+**Frontend** — React 19, Vite 6, React Router 7, hand-rolled CSS (no framework).
+
+**Backend** — FastAPI, SQLModel, Postgres (hosted on Supabase). Tested with Python 3.14.
+
+**Machine learning** — a pre-trained scikit-learn SVM pipeline, loaded once at API startup from `backend/artifacts/`.
+
+---
+
+## Quick Start
+
+You'll need two terminal windows — one for the backend, one for the frontend.
 
 ### Backend
-- FastAPI
-- Python 3.10+
-
----
-
-## Project Structure
-
-```text
-CharlestonCorrosionControl/
-├── backend/
-│   ├── core/
-│   ├── db/
-│   │   ├── .env
-│   │   └── .env.example
-│   ├── models/
-│   ├── routers/
-│   ├── schemas/
-│   ├── services/
-│   ├── dependencies.py
-│   ├── main.py
-│   └── requirements.txt
-│
-├── frontend/
-│   ├── public/
-│   │   └── vite.svg
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── dashboard.jsx
-│   │   │   └── sensors.jsx
-│   │   ├── App.jsx
-│   │   ├── layout.jsx
-│   │   ├── main.jsx
-│   │   ├── App.css
-│   │   └── index.css
-│   ├── index.html
-│   ├── vite.config.js
-│   └── package.json
-│
-│── resources/
-│── .gitignore
-└── README.md
-```
-
----
-
-## Running the Project
-
-Backend and frontend run separately.
-
----
-
-## Backend Setup (FastAPI)
-
-If no .venv file in /backend directory, create virtual environment:
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3 -m venv .venv                     # first time only
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt           # first time only
 uvicorn main:app --reload --port 8001
 ```
 
-0therwise, activate current environment and run application from /backend directory:
+Then test it:
+
+```bash
+curl http://127.0.0.1:8001/
+# → {"status":"ok"}
+```
+
+### Seed the database (first time only)
 
 ```bash
 cd backend
-source .venv/bin/activate
-uvicorn main:app --reload --port 8001
+python -m scripts.seed_sensors_and_readings
 ```
 
-### Test API
+This wipes and refills the database with 8 example sensors and 30 days of synthetic readings. To add fresh readings on top of existing data without wiping anything, use:
 
-Open browser:
-
-```
-http://127.0.0.1:8001/
+```bash
+python -m scripts.update_sensor_readings --once
 ```
 
-Expected response:
+### Frontend
 
-```json
-{"message": "Hello World"}
-```
-
----
-
-## Frontend Setup (React + Vite)
-
-1. Open new terminal
-
-2. If react is not installed:
 ```bash
 cd frontend
-npm install
+npm install                               # first time only
 npm run dev
 ```
 
-Otherwise:
-```bash
-cd frontend
-npm run dev
-```
-
-Open browser:
-
-```
-http://localhost:5173
-```
+Open <http://localhost:5173>.
 
 ---
 
 ## Pages
 
-### Dashboard
-Displays system overview:
-- Active sensors
-- At-risk sensors
-- Critical sensors
-- Online sensors
-- Active alerts
-- Recent inspections
+| URL | What it does |
+| --- | --- |
+| `/dashboard` | System overview — KPIs, active alerts, recent activity. |
+| `/sensors` | Searchable, filterable list of all sensors. |
+| `/sensors/new` | Form to add a new sensor (accepts `?location=` to pre-fill). |
+| `/sensors/:code` | One sensor's details — view, edit status/location, delete. |
+| `/locations` | Locations grid grouped from each sensor's location field. |
+| `/locations/:name` | One location — rename, list its sensors, add a new sensor. |
+| `/activity` | Predictions for every sensor + trend charts (temp, humidity, pressure, corrosion). |
 
-### Sensors
-Displays:
-- Searchable sensor list
-- Status filtering
-- Risk indicators (Low, Medium, High, Critical)
-- Last seen timestamps
+---
+
+## Project Structure
+
+```
+CharlestonCorrosionControl/
+├── HANDOFF.md                  ← read this for the deep tour
+├── README.md
+├── backend/
+│   ├── main.py                 ← FastAPI app, CORS, router mounting
+│   ├── requirements.txt
+│   ├── .env                    ← DATABASE_URL (gitignored)
+│   ├── artifacts/              ← saved ML model + metadata (.joblib files)
+│   ├── core/
+│   ├── db/                     ← SQLModel engine + session
+│   ├── ml/                     ← prediction pipeline
+│   ├── models/                 ← SQLModel tables (Sensors, SensorReading)
+│   ├── routers/                ← sensors, locations, readings, corrosion
+│   ├── schemas/                ← request/response shapes
+│   ├── services/               ← business logic (CRUD, updates)
+│   ├── scripts/                ← seed + live-update scripts
+│   └── tests/
+└── frontend/
+    ├── index.html
+    ├── package.json
+    ├── vite.config.js
+    └── src/
+        ├── main.jsx
+        ├── App.jsx             ← routes
+        ├── layout.jsx          ← sidebar + main shell
+        ├── index.css           ← design tokens + all styles
+        ├── components/
+        │   ├── Icons.jsx       ← inline SVG icon set
+        │   ├── LineChart.jsx   ← inline-SVG chart, no deps
+        │   └── Card/
+        └── pages/              ← Dashboard, Sensors, SensorForm, SensorDetail,
+                                   Locations, LocationDetail, Activity
+```
+
+---
+
+## Backend API (overview)
+
+| Method & Path | Purpose |
+| --- | --- |
+| `GET /` | Health check |
+| `GET /api/sensor-submissions/` | List sensors |
+| `POST /api/sensor-submissions/` | Create a sensor |
+| `GET /api/sensor-submissions/{code}` | Fetch one sensor |
+| `PATCH /api/sensor-submissions/{code}` | Update sensor fields |
+| `DELETE /api/sensor-submissions/{code}` | Delete a sensor (and its readings) |
+| `GET /api/locations/{name}` | Sensors at a location |
+| `PATCH /api/locations/{name}` | Bulk-rename a location |
+| `GET /sensor-readings/` | All readings |
+| `POST /sensor-readings/` | Add a reading |
+| `GET /sensor-readings/{code}` | Readings for one sensor |
+| `GET /corrosion/predict/{code}` | ML prediction for a sensor |
+| `GET /corrosion/metadata` | Model features + decision threshold |
+
+Auto-generated docs are available at <http://127.0.0.1:8001/docs> while the backend is running.
 
 ---
 
 ## Environment Variables
 
-Backend environment file:
+The backend reads `backend/.env`. It's gitignored — create your own.
+
+Example contents:
 
 ```
-backend/db/.env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DBNAME
 ```
 
-Create from template:
-
-```bash
-cp backend/db/.env.example backend/db/.env
-```
-
-Do not commit real credentials.
+Use a Supabase Postgres URL (or any other Postgres) with credentials you control. Never commit real credentials.
 
 ---
 
 ## Development Ports
 
-| Service  | Port |
-|--------|----|
-| Frontend | 5173 |
-| Backend  | 8001 |
+| Service | Port |
+| --- | --- |
+| Frontend (Vite) | 5173 |
+| Backend (FastAPI) | 8001 |
 
-Frontend will later communicate with:
-
-```
-http://127.0.0.1:8001
-```
+The frontend talks to the backend at `http://127.0.0.1:8001` (currently hardcoded — see `HANDOFF.md` §2 for the cleanup note).
 
 ---
 
-## Current Status
+## Where to Go Next
 
-- Frontend fully functional with mock data
-- Backend initialized
-- UI role switching is demo-only
-- Sensors marked offline still count toward risk metrics
-
----
-
-## Future Improvements
-
-- Connect frontend to API
-- Sensor detail view
-- Historical inspection trends
-- Alert acknowledgement workflow
-- Authentication + role permissions
-- Database persistence
-
----
-
-## Purpose
-
-This project demonstrates how a lightweight monitoring dashboard can assist operators in identifying corrosion risk early and prioritizing maintenance actions efficiently.
-
+For a full handoff — what's built, the known quirks, the planned roadmap, and ideas for things to improve — read [`HANDOFF.md`](./HANDOFF.md).

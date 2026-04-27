@@ -1,8 +1,43 @@
+from datetime import datetime, timezone
+
 from sqlmodel import Session, select
 from fastapi import HTTPException
 from models.sensors import Sensors
 from schemas.sensor_request import SensorRequest
+from schemas.sensor_update import SensorUpdate
 from models.sensors import ConnectionStatus
+
+
+def get_sensor_or_404(session: Session, sensor_code: str) -> Sensors:
+    sensor = session.exec(
+        select(Sensors).where(Sensors.sensor_code == sensor_code)
+    ).first()
+    if not sensor:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sensor '{sensor_code}' not found.",
+        )
+    return sensor
+
+
+def update_sensor(
+    session: Session,
+    sensor_code: str,
+    patch: SensorUpdate,
+) -> Sensors:
+    sensor = get_sensor_or_404(session, sensor_code)
+
+    data = patch.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(sensor, field, value)
+
+    sensor.updated_at = datetime.now(timezone.utc)
+
+    session.add(sensor)
+    session.commit()
+    session.refresh(sensor)
+    return sensor
+
 
 def CreateSensor(
     session: Session,
